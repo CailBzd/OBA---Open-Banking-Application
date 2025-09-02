@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
     const token = authHeader.substring(7);
 
-    const response = await fetch('https://api.truelayer.com/data/v1/accounts', {
+    const response = await fetch('https://api.truelayer.com/data/v1/me', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -29,12 +29,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const accountsData = await response.json();
-    console.log('📊 Comptes récupérés:', JSON.stringify(accountsData, null, 2));
-    return NextResponse.json(accountsData);
+    const userData = await response.json();
+    return NextResponse.json(userData);
 
   } catch (error) {
-    console.error('Erreur lors de la récupération des comptes:', error);
+    console.error('Erreur lors de la récupération des données utilisateur:', error);
     return NextResponse.json(
       { error: 'Erreur interne du serveur' },
       { status: 500 }

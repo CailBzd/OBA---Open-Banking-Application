@@ -10,9 +10,10 @@ import { Building2, CreditCard, TrendingUp, RefreshCw, LogOut, CheckCircle, Aler
 import { useTrueLayerApi } from '@/hooks/useTrueLayerApi';
 
 export default function TrueLayerConnection() {
-  const [clientId, setClientId] = useState('sandbox-openbank-d33846');
-  const [clientSecret, setClientSecret] = useState('5fe1e369-e616-4687-9512-767710c2428a');
-  const [redirectUri, setRedirectUri] = useState('http://localhost:3000/api/truelayer/callback');
+  const [clientId, setClientId] = useState('openbank-d33846');
+  const [clientSecret, setClientSecret] = useState('c06c0894-50fe-494b-9b30-914afc3b07fd');
+  const [redirectUri, setRedirectUri] = useState('http://localhost:3000/callback');
+  const [accessToken, setAccessTokenInput] = useState('');
 
   const {
     loading,
@@ -21,8 +22,12 @@ export default function TrueLayerConnection() {
     balances,
     transactions,
     cards,
+    userData,
     connectBank,
+    connectAndFetchData,
     handleAuthCallback,
+    setAccessToken,
+    fetchUserData,
     fetchAccounts,
     fetchAccountBalances,
     fetchAccountTransactions,
@@ -66,6 +71,43 @@ export default function TrueLayerConnection() {
     await fetchAccountCards(accountId);
   };
 
+  // Utiliser le token directement et récupérer toutes les données
+  const handleUseToken = async () => {
+    if (!accessToken.trim()) {
+      setError('Veuillez entrer un token d\'accès');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Étape 1: Définir le token
+      setAccessToken(accessToken);
+      console.log('✅ Token défini avec succès');
+      
+      // Étape 2: Récupérer les données utilisateur
+      console.log('🔄 Récupération des données utilisateur...');
+      await fetchUserData();
+      
+      // Étape 3: Récupérer les comptes
+      console.log('🔄 Récupération des comptes...');
+      await fetchAccounts();
+      
+      // Étape 4: Récupérer les soldes pour chaque compte
+      console.log('🔄 Récupération des soldes...');
+      // Les soldes sont récupérés automatiquement dans fetchAccounts
+      
+      console.log('✅ Toutes les données récupérées avec succès !');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erreur inconnue';
+      setError(`Erreur lors de la récupération des données: ${errorMessage}`);
+      console.error('❌ Erreur lors de la récupération des données:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (isConnected) {
     return (
       <div className="container mx-auto py-8 px-4">
@@ -97,11 +139,58 @@ export default function TrueLayerConnection() {
           </Alert>
         )}
 
+        {authUrl && (
+          <Alert className="mb-6">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>
+              <div>
+                <p className="font-medium mb-2">URL d'autorisation générée :</p>
+                <p className="text-sm text-gray-600 break-all">{authUrl}</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  Cliquez sur "Se connecter via popup" pour ouvrir l'autorisation dans une popup.
+                </p>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {loading && (
           <div className="text-center py-8">
             <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
             <p className="text-gray-600">Chargement en cours...</p>
           </div>
+        )}
+
+        {/* Données utilisateur */}
+        {userData && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                Informations utilisateur
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">ID Utilisateur</div>
+                  <div className="font-medium">{userData.id || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Email</div>
+                  <div className="font-medium">{userData.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Nom</div>
+                  <div className="font-medium">{userData.name || 'N/A'}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600 mb-1">Statut</div>
+                  <div className="font-medium text-green-600">Connecté</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {accounts.length > 0 && (
@@ -272,7 +361,7 @@ export default function TrueLayerConnection() {
                 id="redirectUri"
                 value={redirectUri}
                 onChange={(e) => setRedirectUri(e.target.value)}
-                placeholder="http://localhost:3000/api/truelayer/callback"
+                placeholder="http://localhost:3000/callback"
                 className="mt-1"
               />
               <p className="text-sm text-gray-500 mt-1">
@@ -280,24 +369,74 @@ export default function TrueLayerConnection() {
               </p>
             </div>
 
-            <Button
-              onClick={connectBank}
-              disabled={!clientId || !clientSecret || !redirectUri || loading}
-              className="w-full"
-              size="lg"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Connexion en cours...
-                </>
-              ) : (
-                <>
-                  <Building2 className="h-4 w-4 mr-2" />
-                  Se connecter à ma banque
-                </>
+            <div>
+              <Label htmlFor="accessToken">Token d'accès (optionnel)</Label>
+              <Input
+                id="accessToken"
+                type="password"
+                value={accessToken}
+                onChange={(e) => setAccessTokenInput(e.target.value)}
+                placeholder="Votre token d'accès TrueLayer"
+                className="mt-1"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Entrez directement votre token d'accès pour éviter la redirection OAuth
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <Button
+                onClick={connectAndFetchData}
+                disabled={!clientId || !clientSecret || loading}
+                className="w-full"
+                size="lg"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Connexion en cours...
+                  </>
+                ) : (
+                  <>
+                    <Building2 className="h-4 w-4 mr-2" />
+                    Se connecter via popup
+                  </>
+                )}
+              </Button>
+
+              <Button
+                onClick={connectBank}
+                disabled={!clientId || !clientSecret || !redirectUri || loading}
+                className="w-full"
+                size="lg"
+                variant="outline"
+              >
+                <Building2 className="h-4 w-4 mr-2" />
+                Générer URL d'autorisation (OAuth)
+              </Button>
+
+              {accessToken && (
+                <Button
+                  onClick={handleUseToken}
+                  disabled={!accessToken.trim() || loading}
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Utilisation du token...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Utiliser le token directement
+                    </>
+                  )}
+                </Button>
               )}
-            </Button>
+            </div>
           </CardContent>
         </Card>
 

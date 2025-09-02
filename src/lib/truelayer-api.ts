@@ -29,12 +29,82 @@ export class TrueLayerApiService {
       response_type: 'code',
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
-      scope: 'accounts balance transactions cards direct_debits standing_orders offline_access',
+      scope: 'info accounts balance cards transactions direct_debits standing_orders offline_access',
       state: state || 'default',
-      providers: 'uk-ob-all' // Toutes les banques UK Open Banking
+      providers: 'uk-cs-mock uk-ob-all uk-oauth-all' // Toutes les banques UK Open Banking
     });
 
-    return `https://auth.truelayer.com/connect/oauth2/authorize?${params.toString()}`;
+    return `https://auth.truelayer.com/?${params.toString()}`;
+  }
+
+  /**
+   * Obtenir l'URL d'autorisation via l'API serveur
+   */
+  async getAuthUrlViaServer(): Promise<string> {
+    try {
+      const response = await fetch('/api/truelayer/auth', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: this.clientId,
+          clientSecret: this.clientSecret,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`Erreur: ${error.error}`);
+      }
+
+      const data = await response.json();
+      return data.authUrl;
+    } catch (error) {
+      console.error('❌ Erreur lors de la génération de l\'URL d\'autorisation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Échanger le code d'autorisation contre un token via l'API serveur
+   */
+  async exchangeCodeForTokenViaServer(authCode: string): Promise<TrueLayerAuthResponse> {
+    try {
+      const response = await fetch('/api/truelayer/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          clientId: this.clientId,
+          clientSecret: this.clientSecret,
+          authCode: authCode,
+          redirectUri: this.redirectUri,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`Erreur d'authentification: ${error.error}`);
+      }
+
+      const data = await response.json();
+      this.accessToken = data.token;
+      this.refreshToken = data.refreshToken;
+
+      console.log('✅ Token TrueLayer obtenu via serveur avec succès');
+      return {
+        access_token: data.token,
+        refresh_token: data.refreshToken,
+        expires_in: data.expiresIn,
+        token_type: data.tokenType,
+        scope: data.scope
+      };
+    } catch (error) {
+      console.error('❌ Erreur lors de l\'échange du token:', error);
+      throw error;
+    }
   }
 
   /**
@@ -42,10 +112,11 @@ export class TrueLayerApiService {
    */
   async exchangeCodeForToken(authCode: string): Promise<TrueLayerAuthResponse> {
     try {
-      const response = await fetch('https://auth.truelayer.com/connect/oauth2/token', {
+      const options = {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'accept': 'application/json',
+          'content-type': 'application/x-www-form-urlencoded'
         },
         body: new URLSearchParams({
           grant_type: 'authorization_code',
@@ -53,8 +124,10 @@ export class TrueLayerApiService {
           client_secret: this.clientSecret,
           redirect_uri: this.redirectUri,
           code: authCode,
-        }),
-      });
+        })
+      };
+
+      const response = await fetch('https://auth.truelayer-sandbox.com/connect/token', options);
 
       if (!response.ok) {
         const error = await response.json();
@@ -82,7 +155,7 @@ export class TrueLayerApiService {
     }
 
     try {
-      const response = await fetch('https://auth.truelayer.com/connect/oauth2/token', {
+      const response = await fetch('https://auth.truelayer-sandbox.com/connect/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -113,6 +186,37 @@ export class TrueLayerApiService {
   }
 
   /**
+   * Étape 3.5: Récupérer les données utilisateur
+   */
+  async getUserData(): Promise<any> {
+    if (!this.accessToken) {
+      throw new Error('Token d\'accès non disponible');
+    }
+
+    try {
+      const response = await fetch('/api/truelayer/user', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`Erreur API: ${error.error}`);
+      }
+
+      const userData = await response.json();
+      console.log('✅ Données utilisateur récupérées avec succès');
+      return userData;
+    } catch (error) {
+      console.error('❌ Erreur lors de la récupération des données utilisateur:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Étape 4: Récupérer la liste des comptes
    */
   async getAccounts(): Promise<TrueLayerAccount[]> {
@@ -131,7 +235,7 @@ export class TrueLayerApiService {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(`Erreur API: ${error.error_description || error.error}`);
+        throw new Error(`Erreur API: ${error.error}`);
       }
 
       const accounts: TrueLayerAccount[] = await response.json();
@@ -162,7 +266,7 @@ export class TrueLayerApiService {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(`Erreur API: ${error.error_description || error.error}`);
+        throw new Error(`Erreur API: ${error.error}`);
       }
 
       const balances: TrueLayerBalance[] = await response.json();
@@ -191,13 +295,16 @@ export class TrueLayerApiService {
       if (fromDate) params.append('from', fromDate);
       if (toDate) params.append('to', toDate);
 
-      const response = await fetch(`/api/truelayer/accounts/${accountId}/transactions?${params.toString()}`, {
+      const options = {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Accept': 'application/json',
-        },
-      });
+          'accept': 'application/json',
+          'authorization': `Bearer ${this.accessToken}`
+        }
+      };
+
+      // Utiliser notre route API locale au lieu d'appeler directement TrueLayer
+      const response = await fetch(`/api/truelayer/accounts/${accountId}/transactions?${params.toString()}`, options);
 
       if (!response.ok) {
         const error = await response.json();
@@ -222,13 +329,15 @@ export class TrueLayerApiService {
     }
 
     try {
-      const response = await fetch(`/api/truelayer/accounts/${accountId}/cards`, {
+      const options = {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Accept': 'application/json',
-        },
-      });
+          'accept': 'application/json',
+          'authorization': `Bearer ${this.accessToken}`
+        }
+      };
+
+      const response = await fetch(`https://api.truelayer-sandbox.com/data/v1/accounts/${accountId}/cards`, options);
 
       if (!response.ok) {
         const error = await response.json();
